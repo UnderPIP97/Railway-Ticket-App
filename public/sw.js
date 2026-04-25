@@ -1,8 +1,8 @@
-const CACHE_NAME = 'rail-babu-v2';
+const CACHE_NAME = 'rail-babu-v3';
 const ASSETS = [
   '/',
   '/index.html',
-  '/Rail_Admin_logo.png',
+  '/Rail_Babu_logo.png',
   '/indian-railways-logo.jpg',
   '/p_sign.png'
 ];

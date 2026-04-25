@@ -81,16 +81,16 @@ function App() {
 
     const parseBlock = (block) => {
       // PNR
-      const pnrMatch = block.match(/PNR[:\s-]*(\d{10,12})/i);
+      const pnrMatch = block.match(/PNR[:\s–-]*(\d{10,12})/i);
       const pnr = pnrMatch ? pnrMatch[1] : '';
 
       // Train
-      const trainMatch = block.match(/(?:TRN|Trn|Train)[:\s-]*(\d{4,5})/i);
+      const trainMatch = block.match(/(?:TRN|Trn|Train)[:\s–-]*(\d{4,5})/i);
       const train = trainMatch ? trainMatch[1] : '';
 
-      // Date - convert "26-04" or "26/04" to "26/04/2026"
+      // Date - convert "26-04" or "26/04" or "26/04/26" to "26/04/2026"
       let date = '';
-      const dateMatch = block.match(/(?:DOJ|Dt|Date)[:\s-]*(\d{1,2})[-\/](\d{1,2})(?:[-\/](\d{2,4})?)?/i);
+      const dateMatch = block.match(/(?:DOJ|Dt|Date)[:\s–-]*(\d{1,2})[-\/](\d{1,2})(?:[-\/](\d{2,4})?)?/i);
       if (dateMatch) {
         const day = dateMatch[1].padStart(2, '0');
         const month = dateMatch[2].padStart(2, '0');
@@ -100,20 +100,21 @@ function App() {
         date = `${day}/${month}/${year}`;
       }
 
-      // Name
+      // Name - improved to handle more formats
       let name = '';
-      const nameMatch = block.match(/(?:Name)[:\s.]*([A-Za-z\s+\d]+?)(?:\n|Mobile|\d{10}|Class|$)/i);
+      const nameMatch = block.match(/(?:Name)[:\s.–-]*([A-Za-z\s+\d]+?)(?:\n|Mobile|Mob|\d{10}|Class|$)/i);
       if (nameMatch) {
         name = nameMatch[1].trim();
       } else {
         // Look for a line of all caps with optional +N suffix (e.g. AMIT VERMA+2)
-        const keywords = /^(PNR|TRN|DOJ|CLASS|BERTH|FROM|FRM|DP|MOBILE|GM|SECRETARY|PUNE|CSTM|LTT|NDLS|HWH|DBG)/i;
+        const keywords = /^(PNR|TRN|DOJ|CLASS|BERTH|FROM|FRM|DP|MOBILE|MOB|GM|SECRETARY|PUNE|CSTM|LTT|NDLS|HWH|DBG|TO|REGARDS|GOOD|AFTERNOON|EVENING|MORNING|REQUEST|KINDLY)/i;
         const lines = block.split(/\n/);
         for (const line of lines) {
           const l = line.trim();
-          // Match: "AMIT VERMA" or "AMIT VERMA+2" or "PRAMEELA RANI+1"
-          if (/^[A-Z][A-Z\s]+(\+\d+)?$/.test(l) && l.replace(/\+\d+/, '').trim().length > 3 && l.length < 35 && !keywords.test(l)) {
+          // Match: "AMIT VERMA" or "AMIT VERMA+2" or "Sharad sharma"
+          if (/^[A-Z][A-Za-z\s]+(\+\d+)?$/.test(l) && l.replace(/\+\d+/, '').trim().length > 3 && l.length < 35 && !keywords.test(l)) {
             name = l;
+            break;
           }
         }
       }
@@ -122,20 +123,32 @@ function App() {
       let noOfBerth = '';
       const berthCountMatch = block.match(/(\d+)\s*berth/i);
       const berthCount = berthCountMatch ? berthCountMatch[1] : '';
-      const classMatch = block.match(/(?:Class\s*)([A-Z0-9]{1,3})(?:\s|\d|,|$)/i);
+      const classMatch = block.match(/(?:Class)[:\s–-]*([A-Z0-9]{1,3})(?:\s|\d|,|$|\n)/i);
       const travelClass = classMatch ? classMatch[1].toUpperCase() : '';
-      if (berthCount && travelClass) noOfBerth = `${travelClass}-${berthCount}`;
-      else if (berthCount) noOfBerth = berthCount;
-      else if (travelClass) noOfBerth = travelClass;
+      
+      if (berthCount && travelClass) {
+        noOfBerth = `${travelClass}-${berthCount}`;
+      } else if (travelClass) {
+        // If only class is mentioned, default to CLASS-1
+        noOfBerth = `${travelClass}-1`;
+      } else if (berthCount) {
+        noOfBerth = berthCount;
+      }
 
-      // Destination
+      // Destination - improved to handle "From – LTT/ KYN To : PRYJ" format
       let destination = '';
-      const destMatch1 = block.match(/([A-Z]{3,5})\s*-\s*([A-Z]{3,5})/);
+      // Try format: "From – LTT/ KYN To : PRYJ"
+      const destMatch1 = block.match(/(?:From|Frm)[:\s–-]*([A-Z\/\s]+?)\s*(?:To|TO)[:\s–-]*([A-Z]+)/i);
       if (destMatch1) {
-        destination = `${destMatch1[1]}-${destMatch1[2]}`;
+        const from = destMatch1[1].trim().replace(/\s*\/\s*/g, '/').split(/\s+/)[0]; // Take first station if multiple
+        const to = destMatch1[2].trim();
+        destination = `${from}-${to}`;
       } else {
-        const destMatch2 = block.match(/(?:Frm|From)[:\s]*([A-Z]+)\s*(?:to|TO)\s*([A-Z]+)/i);
-        if (destMatch2) destination = `${destMatch2[1]}-${destMatch2[2]}`;
+        // Try format: "LTT-RJY" or "LTT - RJY"
+        const destMatch2 = block.match(/([A-Z]{3,5})\s*[-–]\s*([A-Z]{3,5})/);
+        if (destMatch2) {
+          destination = `${destMatch2[1]}-${destMatch2[2]}`;
+        }
       }
 
       // Request From - extract only the authority name, not the request text
@@ -352,8 +365,15 @@ function App() {
     doc.setLineWidth(0.4);
     doc.line(marginL, dividerY, marginR, dividerY);
 
-    // ── TABLE – starts 20mm below header ─────────────────────────────
-    const tableStartY = dividerY + 8;   // ~20mm gap from header area
+    // ── "To Respected Sir," line above table ──────────────────────────
+    const toLineY = dividerY + 8;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    doc.setTextColor(30, 30, 30);
+    doc.text('To Respected Sir,', marginL, toLineY);
+
+    // ── TABLE – starts below "To Respected Sir," ─────────────────────
+    const tableStartY = toLineY + 8;
 
     const tableData = records.map((r, i) => [
       i + 1,
@@ -414,26 +434,7 @@ function App() {
     const tableEndY  = doc.lastAutoTable.finalY;
     const footerY    = tableEndY + 20;   // 40mm white space
 
-    // Left contact block
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.setTextColor(30, 30, 30);
-    doc.text('PRAVIN BARIA', marginL, footerY);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.setTextColor(60, 60, 60);
-    doc.text('Chief Office Superintendent', marginL, footerY + 6);
-    doc.text('GM Secretariat',              marginL, footerY + 12);
-    doc.text('+91-8828110017',              marginL, footerY + 18);
-
-    // Right signature block
-    const sigX = marginR;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.setTextColor(120, 120, 120);
-
-    // Load and place actual signature image
+    // Left signature block with signature image above PRAVIN BARIA
     try {
       const signImg = new Image();
       signImg.src = '/p_sign.png';
@@ -441,20 +442,37 @@ function App() {
         signImg.onload  = resolve;
         signImg.onerror = reject;
       });
-      // Place signature image - right aligned
+      // Place signature image - left aligned
       const sigW = 40;
       const sigH = 15;
-      doc.addImage(signImg, 'PNG', sigX - sigW, footerY - 5, sigW, sigH);
+      doc.addImage(signImg, 'PNG', marginL, footerY - 5, sigW, sigH);
     } catch (e) {
       // fallback text if image missing
-      doc.text('(Signature)', sigX, footerY, { align: 'right' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(120, 120, 120);
+      doc.text('(Signature)', marginL, footerY);
     }
 
-    // Printed name under signature
+    // Name and details under signature (left side)
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
+    doc.setFontSize(11);
     doc.setTextColor(30, 30, 30);
-    doc.text('PRAVIN BARIA', sigX, footerY + 16, { align: 'right' });
+    doc.text('PRAVIN BARIA', marginL, footerY + 16);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(60, 60, 60);
+    doc.text('Chief Office Superintendent', marginL, footerY + 22);
+    doc.text('GM Secretariat',              marginL, footerY + 28);
+    doc.text('+91-8828110017',              marginL, footerY + 34);
+
+    // Right side - SECRETARY CR
+    const sigX = marginR;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(30, 30, 30);
+    doc.text('SECRETARY CR', sigX, footerY + 16, { align: 'right' });
 
     // ── SAVE ──────────────────────────────────────────────────────────
     doc.save(`ACM_RES_Ticket_Records_${currentDate.replace(/\//g, '-')}.pdf`);
@@ -492,11 +510,14 @@ function App() {
         <div className="inner-view">
           <div className="inner-topbar">
             <button className="btn-back" onClick={() => setView('home')}>← Back</button>
-            <h1>Smart Input</h1>
+            <h1>AI Assist</h1>
           </div>
 
           <div className="card">
             <div className="card-title">Paste your message</div>
+            <p style={{ fontSize: '14px', color: '#666', marginBottom: '12px', lineHeight: '1.5' }}>
+              With smart AI generation, simply paste your request message below and the fields will be seamlessly mapped and ready for export.
+            </p>
             <textarea
               className="chat-input"
               value={chatInput}
